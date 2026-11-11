@@ -1,0 +1,1240 @@
+<!DOCTYPE html>
+<html lang="ko" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>책상 지진계 (Desk Seismograph) - 지구과학 탐구 웹 앱</title>
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Tailwind Configuration for Dark Theme -->
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            seismo: {
+              bg: '#0b0f19',
+              card: '#151c2e',
+              border: '#232e48',
+              accent: '#00f0ff',
+              warning: '#ff9900',
+              danger: '#ff2a6d',
+              success: '#05ffa1'
+            }
+          },
+          fontFamily: {
+            sans: ['Inter', 'Noto Sans KR', 'sans-serif']
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- Font Awesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <style>
+    /* Custom Scrollbar for sleek dark design */
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0b0f19;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #232e48;
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #00f0ff;
+    }
+    
+    /* Radar / Pulse animation for seismograph status */
+    @keyframes pulse-ring {
+      0% { transform: scale(0.95); opacity: 0.8; }
+      50% { transform: scale(1.1); opacity: 0.4; }
+      100% { transform: scale(0.95); opacity: 0.8; }
+    }
+    .animate-pulse-ring {
+      animation: pulse-ring 2s infinite ease-in-out;
+    }
+
+    /* Subtle seismic grid background */
+    .bg-seismic-grid {
+      background-image: radial-gradient(#232e48 1px, transparent 1px);
+      background-size: 20px 20px;
+    }
+  </style>
+</head>
+<body class="bg-seismo-bg text-slate-100 font-sans min-h-screen flex flex-col bg-seismic-grid selection:bg-seismo-accent selection:text-black">
+
+  <!-- Top Navigation Header -->
+  <header class="border-b border-seismo-border bg-seismo-card/90 backdrop-blur sticky top-0 z-30 px-4 lg:px-8 py-3.5 shadow-lg">
+    <div class="max-w-7xl mx-auto flex flex-col sm:flex-row justify-between items-center gap-3">
+      <div class="flex items-center gap-3">
+        <div class="p-2.5 bg-cyan-500/10 border border-cyan-500/30 rounded-xl text-seismo-accent">
+          <i class="fa-solid font-bold fa-house-tsunami text-2xl"></i>
+        </div>
+        <div>
+          <h1 class="text-xl sm:text-2xl font-bold tracking-tight text-white flex items-center gap-2">
+            책상 지진계 <span class="text-xs px-2 py-0.5 rounded-full bg-cyan-500/20 text-seismo-accent border border-cyan-500/40 font-mono">Desk Seismograph</span>
+          </h1>
+          <p class="text-xs text-slate-400">오렌지보드(MPU6050) 연동 - 진원에 따른 파형 및 진폭 감쇠 탐구</p>
+        </div>
+      </div>
+
+      <!-- Quick Action Buttons & Status -->
+      <div class="flex items-center gap-2 sm:gap-3 flex-wrap">
+        <div id="serial-status-pill" class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-800 border border-slate-700 text-xs font-medium text-slate-400">
+          <span class="w-2.5 h-2.5 rounded-full bg-slate-500" id="status-dot"></span>
+          <span id="status-text">연결 대기 중</span>
+        </div>
+
+        <button id="guide-modal-btn" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-300 border border-slate-700 transition duration-150 flex items-center gap-1.5">
+          <i class="fa-solid fa-microchip text-seismo-accent"></i> 아두이노 코드 & 회로
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8 space-y-6">
+
+    <!-- Web Serial Alert Bar if browser not compatible -->
+    <div id="browser-warning" class="hidden p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-sm flex items-center gap-3">
+      <i class="fa-solid fa-triangle-exclamation text-amber-400 text-xl"></i>
+      <div>
+        <strong>Web Serial API 미지원 브라우저:</strong> 현재 브라우저에서는 시리얼 통신을 지원하지 않습니다. <strong>Chrome</strong> 또는 <strong>Edge</strong> 브라우저를 권장합니다. (하단의 시뮬레이터 모드는 정상 작동합니다.)
+      </div>
+    </div>
+
+    <!-- Top Control Toolbar -->
+    <div class="bg-seismo-card border border-seismo-border rounded-2xl p-4 shadow-xl flex flex-wrap items-center justify-between gap-4">
+      
+      <!-- Primary Hardware Controls -->
+      <div class="flex items-center gap-2 sm:gap-3 flex-wrap">
+        <button id="connect-btn" class="px-4 py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-sm shadow-lg shadow-cyan-500/20 transition-all flex items-center gap-2">
+          <i class="fa-solid fa-plug"></i> <span id="connect-btn-text">포트 연결</span>
+        </button>
+
+        <button id="calibrate-btn" class="px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-semibold text-sm transition flex items-center gap-2" title="현재 상태를 0.0 m/s²으로 오프셋 조정">
+          <i class="fa-solid fa-scale-balanced text-seismo-accent"></i> 영점 조절
+        </button>
+
+        <button id="reset-btn" class="px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-semibold text-sm transition flex items-center gap-2">
+          <i class="fa-solid fa-rotate-right text-slate-400"></i> 데이터 초기화
+        </button>
+
+        <button id="export-csv-btn" class="px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-slate-700 font-semibold text-sm transition flex items-center gap-2">
+          <i class="fa-solid fa-file-csv"></i> CSV 저장
+        </button>
+      </div>
+
+      <!-- Simulation Toggle & Filter Toggle -->
+      <div class="flex items-center gap-4 bg-slate-900/60 p-2 rounded-xl border border-seismo-border">
+        <!-- Moving Average Filter Switch -->
+        <label class="flex items-center gap-2 cursor-pointer text-xs font-medium text-slate-300">
+          <input type="checkbox" id="filter-toggle" class="sr-only peer" checked>
+          <div class="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-cyan-500 relative"></div>
+          <span>이동평균 필터</span>
+        </label>
+
+        <div class="h-4 w-px bg-slate-700"></div>
+
+        <!-- Simulation Switch -->
+        <label class="flex items-center gap-2 cursor-pointer text-xs font-medium text-slate-300">
+          <input type="checkbox" id="sim-toggle" class="sr-only peer">
+          <div class="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-seismo-warning relative"></div>
+          <span class="text-amber-300">가상 지진 시뮬레이터</span>
+        </label>
+      </div>
+    </div>
+
+    <!-- Summary Cards Grid -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 lg:gap-6">
+      
+      <!-- Card 1: Current Resultant Acceleration -->
+      <div class="bg-seismo-card border border-seismo-border rounded-2xl p-5 shadow-lg relative overflow-hidden">
+        <div class="flex justify-between items-start mb-2">
+          <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">실시간 합성 가속도</span>
+          <i class="fa-solid fa-gauge-high text-cyan-400 text-lg"></i>
+        </div>
+        <div class="flex items-baseline gap-2">
+          <span id="current-accel-val" class="text-3xl font-extrabold text-white font-mono">0.00</span>
+          <span class="text-sm font-medium text-slate-400">m/s²</span>
+        </div>
+        <p class="text-xs text-slate-500 mt-2 font-mono">
+          Formula: $a_{net} = |\sqrt{a_x^2 + a_y^2 + a_z^2} - g|$
+        </p>
+        <!-- Dynamic Level Bar -->
+        <div class="w-full h-2 bg-slate-800 rounded-full mt-4 overflow-hidden">
+          <div id="current-accel-bar" class="h-full bg-cyan-400 transition-all duration-75 w-0"></div>
+        </div>
+      </div>
+
+      <!-- Card 2: Peak Ground Acceleration (PGA) -->
+      <div class="bg-seismo-card border border-seismo-border rounded-2xl p-5 shadow-lg relative overflow-hidden">
+        <div class="flex justify-between items-start mb-2">
+          <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">최대 진폭 (PGA)</span>
+          <button id="reset-pga-btn" class="text-xs text-slate-400 hover:text-white transition" title="최대 진폭 리셋">
+            <i class="fa-solid fa-arrow-rotate-left"></i>
+          </button>
+        </div>
+        <div class="flex items-baseline gap-2">
+          <span id="pga-val" class="text-3xl font-extrabold text-seismo-accent font-mono">0.00</span>
+          <span class="text-sm font-medium text-slate-400">m/s²</span>
+        </div>
+        <p class="text-xs text-slate-400 mt-2">
+          최근 감지된 최대 충격 진폭
+        </p>
+        <div class="w-full h-2 bg-slate-800 rounded-full mt-4 overflow-hidden">
+          <div id="pga-bar" class="h-full bg-seismo-accent transition-all duration-300 w-0"></div>
+        </div>
+      </div>
+
+      <!-- Card 3: Seismic Status Display -->
+      <div id="status-card" class="bg-seismo-card border border-seismo-border rounded-2xl p-5 shadow-lg relative overflow-hidden transition-all duration-300">
+        <div class="flex justify-between items-start mb-2">
+          <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">지진 감지 상태</span>
+          <i id="status-card-icon" class="fa-solid fa-circle-check text-emerald-400 text-lg"></i>
+        </div>
+        <div class="flex items-center gap-3 mt-1 flex-wrap">
+          <div id="status-badge" class="px-3 py-1 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-base font-bold flex items-center gap-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span id="status-state-text">정상 (정지 상태)</span>
+          </div>
+
+          <!-- LED Hardware Status Indicators -->
+          <div class="flex items-center gap-1.5 text-[11px] font-mono">
+            <span id="led-green-indicator" class="px-2 py-0.5 rounded bg-slate-800 text-slate-500 border border-slate-700 transition-all duration-200">
+              <i class="fa-solid fa-lightbulb"></i> D2 녹색
+            </span>
+            <span id="led-red-indicator" class="px-2 py-0.5 rounded bg-slate-800 text-slate-500 border border-slate-700 transition-all duration-200">
+              <i class="fa-solid fa-lightbulb"></i> D3 빨간
+            </span>
+          </div>
+        </div>
+        <p id="status-desc-text" class="text-xs text-slate-400 mt-3">
+          책상에 진동이 감지되지 않는 안정 상태입니다.
+        </p>
+      </div>
+
+    </div>
+
+    <!-- Graphs & Science Module Grid -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      
+      <!-- Left Column (2 Cols): Real-time Seismogram -->
+      <div class="lg:col-span-2 bg-seismo-card border border-seismo-border rounded-2xl p-5 shadow-xl flex flex-col justify-between">
+        <div class="flex flex-col sm:flex-row justify-between sm:items-center gap-2 mb-4">
+          <div>
+            <h2 class="text-lg font-bold text-white flex items-center gap-2">
+              <i class="fa-solid fa-chart-line text-cyan-400"></i> 실시간 지진 파형 (Seismogram)
+            </h2>
+            <p class="text-xs text-slate-400">최근 10초간 $a_x, a_y, a_z$ 축 가속도 및 합성 진폭 시각화</p>
+          </div>
+
+          <!-- Channel Filters -->
+          <div class="flex items-center gap-2 text-xs">
+            <span class="text-slate-400 font-medium">표시 축:</span>
+            <button id="toggle-ax" class="px-2 py-1 rounded bg-slate-800 text-rose-400 border border-rose-500/30 font-mono active font-bold">X축</button>
+            <button id="toggle-ay" class="px-2 py-1 rounded bg-slate-800 text-emerald-400 border border-emerald-500/30 font-mono active font-bold">Y축</button>
+            <button id="toggle-az" class="px-2 py-1 rounded bg-slate-800 text-sky-400 border border-sky-500/30 font-mono active font-bold">Z축</button>
+            <button id="toggle-anet" class="px-2 py-1 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/50 font-mono active font-bold">합성진폭</button>
+          </div>
+        </div>
+
+        <!-- Timeline Chart Canvas Wrapper -->
+        <div class="relative w-full h-[320px] bg-slate-950/60 rounded-xl p-2 border border-slate-800/80">
+          <canvas id="realtimeChart"></canvas>
+        </div>
+      </div>
+
+      <!-- Right Column (1 Col): Earth Science Inquiry Module ("Distance vs Amplitude") -->
+      <div class="bg-seismo-card border border-seismo-border rounded-2xl p-5 shadow-xl flex flex-col justify-between">
+        <div>
+          <div class="flex justify-between items-start mb-3">
+            <div>
+              <h2 class="text-lg font-bold text-white flex items-center gap-2">
+                <i class="fa-solid fa-bullseye text-seismo-warning"></i> 진원 거리 - 진폭 탐구
+              </h2>
+              <p class="text-xs text-slate-400">책상을 두드려 거리별 최대 진폭을 측정하세요</p>
+            </div>
+            <span class="text-xs bg-amber-500/10 text-amber-400 border border-amber-500/30 px-2 py-0.5 rounded-full font-semibold">지구과학 실험</span>
+          </div>
+
+          <!-- Distance Selector Bar -->
+          <div class="space-y-2 my-4">
+            <label class="text-xs font-semibold text-slate-300 flex justify-between">
+              <span>현재 선택된 진원 거리 ($r$):</span>
+              <span id="selected-dist-label" class="text-seismo-accent font-bold font-mono text-sm">10 cm</span>
+            </label>
+
+            <div class="grid grid-cols-5 gap-1.5">
+              <button class="dist-btn px-2 py-2 rounded-lg bg-cyan-500 text-slate-950 font-bold text-xs border border-cyan-400 transition" data-dist="10">10cm</button>
+              <button class="dist-btn px-2 py-2 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 font-bold text-xs border border-slate-700 transition" data-dist="20">20cm</button>
+              <button class="dist-btn px-2 py-2 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 font-bold text-xs border border-slate-700 transition" data-dist="30">30cm</button>
+              <button class="dist-btn px-2 py-2 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 font-bold text-xs border border-slate-700 transition" data-dist="40">40cm</button>
+              <button class="dist-btn px-2 py-2 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 font-bold text-xs border border-slate-700 transition" data-dist="50">50cm</button>
+            </div>
+          </div>
+
+          <!-- Record Action Button -->
+          <button id="record-amplitude-btn" class="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-extrabold text-sm shadow-lg shadow-orange-500/20 transition flex items-center justify-center gap-2">
+            <i class="fa-solid fa-bookmark"></i>
+            <span>현재 최대 진폭 (PGA) 기록하기</span>
+          </button>
+        </div>
+
+        <!-- Distance vs Amplitude Scatter Chart Canvas -->
+        <div class="mt-4 pt-4 border-t border-seismo-border">
+          <div class="flex justify-between items-center mb-2">
+            <span class="text-xs font-semibold text-slate-300">감쇠 곡선 (거리-진폭 관계)</span>
+            <span class="text-[10px] text-slate-500 font-mono">$A \propto 1/r^n$</span>
+          </div>
+          <div class="w-full h-[180px] bg-slate-950/60 rounded-xl p-2 border border-slate-800/80">
+            <canvas id="distanceChart"></canvas>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Data Log Table Section -->
+    <div class="bg-seismo-card border border-seismo-border rounded-2xl p-5 shadow-xl">
+      <div class="flex flex-col sm:flex-row justify-between sm:items-center gap-3 mb-4">
+        <div>
+          <h2 class="text-lg font-bold text-white flex items-center gap-2">
+            <i class="fa-solid fa-table text-emerald-400"></i> 측정 기록 및 통계 데이터
+          </h2>
+          <p class="text-xs text-slate-400">실험을 통해 수집된 진원 거리별 최대 진폭 데이터 목록입니다</p>
+        </div>
+
+        <div class="flex items-center gap-2">
+          <button id="clear-table-btn" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-rose-900/40 text-slate-300 hover:text-rose-300 border border-slate-700 hover:border-rose-700/50 text-xs font-semibold transition">
+            <i class="fa-solid fa-trash-can"></i> 목록 비우기
+          </button>
+        </div>
+      </div>
+
+      <div class="overflow-x-auto rounded-xl border border-seismo-border bg-slate-950/40">
+        <table class="w-full text-left border-collapse text-xs">
+          <thead>
+            <tr class="bg-slate-900/80 text-slate-400 font-semibold border-b border-seismo-border">
+              <th class="py-3 px-4"># 회차</th>
+              <th class="py-3 px-4">측정 시간</th>
+              <th class="py-3 px-4">진원 거리 (cm)</th>
+              <th class="py-3 px-4">최대 진폭 ($m/s^2$)</th>
+              <th class="py-3 px-4">진동 평가</th>
+              <th class="py-3 px-4 text-center">삭제</th>
+            </tr>
+          </thead>
+          <tbody id="data-table-body" class="divide-y divide-slate-800/60 font-mono text-slate-300">
+            <!-- Table rows populated dynamically -->
+            <tr id="empty-row" class="text-center py-6 text-slate-500 font-sans">
+              <td colspan="6" class="py-8">
+                <i class="fa-solid fa-database text-2xl mb-2 text-slate-600 block"></i>
+                기록된 실험 데이터가 없습니다. 상단에서 거리를 선택하고 [현재 최대 진폭 기록하기]를 눌러보세요.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Footer -->
+  <footer class="border-t border-seismo-border bg-seismo-card/50 py-4 px-6 text-center text-xs text-slate-500">
+    <p>중·고등학교 지구과학 지진파 및 진폭 감쇠 실험 교육용 웹 애플리케이션 | Web Serial API 기반</p>
+  </footer>
+
+  <!-- Arduino Code & Circuit Guide Modal -->
+  <div id="guide-modal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-seismo-card border border-seismo-border rounded-2xl max-w-2xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+      
+      <!-- Modal Header -->
+      <div class="p-4 sm:p-5 border-b border-seismo-border flex justify-between items-center bg-slate-900/50">
+        <h3 class="text-lg font-bold text-white flex items-center gap-2">
+          <i class="fa-solid fa-microchip text-seismo-accent"></i> 오렌지보드 (MPU6050) 설정 가이드
+        </h3>
+        <button id="close-modal-btn" class="text-slate-400 hover:text-white p-1 text-lg">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <!-- Modal Body -->
+      <div class="p-5 overflow-y-auto space-y-5 text-xs text-slate-300">
+        
+        <!-- Circuit Diagram Info -->
+        <div>
+          <h4 class="font-bold text-slate-100 text-sm mb-2 text-seismo-accent">1. 회로 연결 방법 (GY-521 & LED ↔ 오렌지보드)</h4>
+          <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2 text-center font-mono">
+            <div class="bg-slate-900 p-2 rounded-lg border border-slate-800">
+              <span class="text-rose-400 font-bold">VCC</span> ➔ <span class="text-amber-400">5V</span>
+            </div>
+            <div class="bg-slate-900 p-2 rounded-lg border border-slate-800">
+              <span class="text-slate-400 font-bold">GND</span> ➔ <span class="text-slate-400">GND</span>
+            </div>
+            <div class="bg-slate-900 p-2 rounded-lg border border-slate-800">
+              <span class="text-cyan-400 font-bold">SDA</span> ➔ <span class="text-cyan-400">A4</span>
+            </div>
+            <div class="bg-slate-900 p-2 rounded-lg border border-slate-800">
+              <span class="text-emerald-400 font-bold">SCL</span> ➔ <span class="text-emerald-400">A5</span>
+            </div>
+            <div class="bg-slate-900 p-2 rounded-lg border border-slate-800">
+              <span class="text-emerald-400 font-bold">녹색 LED</span> ➔ <span class="text-emerald-300">D2</span>
+            </div>
+            <div class="bg-slate-900 p-2 rounded-lg border border-slate-800">
+              <span class="text-rose-400 font-bold">빨간 LED</span> ➔ <span class="text-rose-300">D3</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Arduino Code -->
+        <div>
+          <div class="flex justify-between items-center mb-2">
+            <h4 class="font-bold text-slate-100 text-sm text-seismo-accent">2. 아두이노 스케치 코드 (Baud: 115200)</h4>
+            <button id="copy-code-btn" class="text-xs bg-slate-800 hover:bg-slate-700 text-cyan-300 px-2.5 py-1 rounded border border-slate-700 transition">
+              <i class="fa-solid fa-copy"></i> 코드 복사
+            </button>
+          </div>
+          <pre id="arduino-code-block" class="bg-slate-950 p-3 rounded-xl border border-slate-800 text-emerald-400 font-mono text-[11px] overflow-x-auto select-all leading-relaxed">
+#include &lt;Wire.h&gt;
+#include &lt;Adafruit_MPU6050.h&gt;
+#include &lt;Adafruit_Sensor.h&gt;
+
+Adafruit_MPU6050 mpu;
+
+// LED 핀 정의 (D2: 약한 경보 / D3: 강한 경보)
+const int PIN_GREEN_LED = 2;
+const int PIN_RED_LED   = 3;
+
+void setup() {
+  Serial.begin(115200);
+  while (!Serial) delay(10);
+
+  pinMode(PIN_GREEN_LED, OUTPUT);
+  pinMode(PIN_RED_LED, OUTPUT);
+  digitalWrite(PIN_GREEN_LED, LOW);
+  digitalWrite(PIN_RED_LED, LOW);
+
+  if (!mpu.begin()) {
+    while (1) delay(10);
+  }
+
+  mpu.setAccelerometerRange(MPU6050_RANGE_2_G);
+  mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
+}
+
+void loop() {
+  // 웹 앱에서 전달되는 LED 제어 명령어 처리 ('R': 빨간, 'G': 녹색, '0': 소등)
+  if (Serial.available() > 0) {
+    char cmd = Serial.read();
+    if (cmd == 'R') {
+      digitalWrite(PIN_RED_LED, HIGH);
+      digitalWrite(PIN_GREEN_LED, LOW);
+    } else if (cmd == 'G') {
+      digitalWrite(PIN_RED_LED, LOW);
+      digitalWrite(PIN_GREEN_LED, HIGH);
+    } else if (cmd == '0') {
+      digitalWrite(PIN_RED_LED, LOW);
+      digitalWrite(PIN_GREEN_LED, LOW);
+    }
+  }
+
+  sensors_event_t a, g, temp;
+  mpu.getEvent(&a, &g, &temp);
+
+  // X, Y, Z 가속도(m/s²)를 쉼표로 구별하여 시리얼 전송
+  Serial.print(a.acceleration.x);
+  Serial.print(",");
+  Serial.print(a.acceleration.y);
+  Serial.print(",");
+  Serial.println(a.acceleration.z);
+
+  delay(20); // 50Hz
+}</pre>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- Notification Toast Container -->
+  <div id="toast-container" class="fixed bottom-5 right-5 z-50 space-y-2 pointer-events-none"></div>
+
+  <script>
+    /* Global Application State */
+    const state = {
+      isConnected: false,
+      isSimulating: false,
+      port: null,
+      reader: null,
+      
+      // Raw Accelerometer Values
+      ax: 0, ay: 0, az: 0,
+      
+      // Calibrated Offsets
+      offsetX: 0, offsetY: 0, offsetZ: 0,
+      
+      // Processing & Filtering
+      movingAvgWindow: 5,
+      historyAx: [], historyAy: [], historyAz: [],
+      useFilter: true,
+      
+      // Resultant Accelerations
+      currentAned: 0,
+      pga: 0, // Peak Ground Acceleration
+      
+      // Hardware LED & Voice Alert Control
+      lastLedCommand: null,
+      lastSpeechTime: 0,
+      
+      // Timeline Data Buffer (Max 200 points ~ 10s at 20Hz)
+      maxTimelinePoints: 200,
+      timelineLabels: [],
+      timelineAx: [],
+      timelineAy: [],
+      timelineAz: [],
+      timelineAnet: [],
+      
+      // Active Selection for Experiment
+      selectedDistance: 10,
+      
+      // Recorded Experiments Data
+      records: [], // { id, timestamp, distance, peakAmp, status }
+      
+      // Alarm Audio
+      audioCtx: null
+    };
+
+    // DOM Elements
+    const connectBtn = document.getElementById('connect-btn');
+    const connectBtnText = document.getElementById('connect-btn-text');
+    const statusDot = document.getElementById('status-dot');
+    const statusText = document.getElementById('status-text');
+    const calibrateBtn = document.getElementById('calibrate-btn');
+    const resetBtn = document.getElementById('reset-btn');
+    const exportCsvBtn = document.getElementById('export-csv-btn');
+    const filterToggle = document.getElementById('filter-toggle');
+    const simToggle = document.getElementById('sim-toggle');
+    
+    // Cards DOM
+    const currentAccelVal = document.getElementById('current-accel-val');
+    const currentAccelBar = document.getElementById('current-accel-bar');
+    const pgaVal = document.getElementById('pga-val');
+    const pgaBar = document.getElementById('pga-bar');
+    const resetPgaBtn = document.getElementById('reset-pga-btn');
+    
+    // Status Card & LED Badge DOM
+    const statusCard = document.getElementById('status-card');
+    const statusCardIcon = document.getElementById('status-card-icon');
+    const statusBadge = document.getElementById('status-badge');
+    const statusStateText = document.getElementById('status-state-text');
+    const statusDescText = document.getElementById('status-desc-text');
+    const ledGreenIndicator = document.getElementById('led-green-indicator');
+    const ledRedIndicator = document.getElementById('led-red-indicator');
+
+    // Channel filter toggle buttons
+    const channelToggles = {
+      ax: document.getElementById('toggle-ax'),
+      ay: document.getElementById('toggle-ay'),
+      az: document.getElementById('toggle-az'),
+      anet: document.getElementById('toggle-anet')
+    };
+
+    // Chart 1: Real-time Seismogram Chart
+    const ctxRealtime = document.getElementById('realtimeChart').getContext('2d');
+    const realtimeChart = new Chart(ctxRealtime, {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [
+          { label: 'X축', data: [], borderColor: '#f43f5e', borderWidth: 1.5, pointRadius: 0, tension: 0.1 },
+          { label: 'Y축', data: [], borderColor: '#10b981', borderWidth: 1.5, pointRadius: 0, tension: 0.1 },
+          { label: 'Z축', data: [], borderColor: '#38bdf8', borderWidth: 1.5, pointRadius: 0, tension: 0.1 },
+          { label: '합성 진폭', data: [], borderColor: '#00f0ff', borderWidth: 2.5, pointRadius: 0, tension: 0.2, backgroundColor: 'rgba(0, 240, 255, 0.05)', fill: true }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        interaction: { intersect: false, mode: 'index' },
+        scales: {
+          x: {
+            display: false
+          },
+          y: {
+            grid: { color: '#1e293b' },
+            ticks: { color: '#94a3b8', font: { family: 'monospace', size: 10 } },
+            suggestedMin: -2,
+            suggestedMax: 12
+          }
+        },
+        plugins: {
+          legend: { display: false }
+        }
+      }
+    });
+
+    // Chart 2: Distance vs Amplitude Scatter & Line Chart
+    const ctxDistance = document.getElementById('distanceChart').getContext('2d');
+    const distanceChart = new Chart(ctxDistance, {
+      type: 'scatter',
+      data: {
+        datasets: [
+          {
+            label: '측정 데이터',
+            data: [], // {x: distance, y: peakAmp}
+            backgroundColor: '#ff9900',
+            borderColor: '#ff9900',
+            pointRadius: 6,
+            pointHoverRadius: 8,
+            showLine: false
+          },
+          {
+            label: '평균 감쇠 추세',
+            data: [], // Trendline points
+            borderColor: '#00f0ff',
+            borderWidth: 2,
+            borderDash: [4, 4],
+            pointRadius: 0,
+            showLine: true,
+            fill: false
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          x: {
+            title: { display: true, text: '진원 거리 (cm)', color: '#94a3b8', font: { size: 11 } },
+            grid: { color: '#1e293b' },
+            ticks: { color: '#94a3b8', font: { family: 'monospace' } },
+            min: 0,
+            max: 60
+          },
+          y: {
+            title: { display: true, text: '최대 진폭 (m/s²)', color: '#94a3b8', font: { size: 11 } },
+            grid: { color: '#1e293b' },
+            ticks: { color: '#94a3b8', font: { family: 'monospace' } },
+            beginAtZero: true
+          }
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: (ctx) => `거리: ${ctx.raw.x}cm, 진폭: ${ctx.raw.y.toFixed(2)} m/s²`
+            }
+          }
+        }
+      }
+    });
+
+    // Apply Moving Average Filter
+    function applyMovingAverage(arr, newVal, windowSize = 5) {
+      arr.push(newVal);
+      if (arr.length > windowSize) arr.shift();
+      const sum = arr.reduce((a, b) => a + b, 0);
+      return sum / arr.length;
+    }
+
+    // Process incoming accelerometer reading (from Serial or Simulator)
+    function processSensorData(rawX, rawY, rawZ) {
+      // 1. Apply calibration offsets
+      let calX = rawX - state.offsetX;
+      let calY = rawY - state.offsetY;
+      let calZ = rawZ - state.offsetZ;
+
+      // 2. Optional Moving Average Filter
+      if (state.useFilter) {
+        calX = applyMovingAverage(state.historyAx, calX, state.movingAvgWindow);
+        calY = applyMovingAverage(state.historyAy, calY, state.movingAvgWindow);
+        calZ = applyMovingAverage(state.historyAz, calZ, state.movingAvgWindow);
+      }
+
+      state.ax = calX;
+      state.ay = calY;
+      state.az = calZ;
+
+      // 3. Compute Net Acceleration (dynamic acceleration above gravity / baseline)
+      const totalMag = Math.sqrt(calX * calX + calY * calY + calZ * calZ);
+      const net = Math.abs(totalMag - 9.81);
+      state.currentAnet = parseFloat(net.toFixed(2));
+
+      // 4. Track Peak Ground Acceleration (PGA)
+      if (state.currentAnet > state.pga) {
+        state.pga = state.currentAnet;
+      }
+
+      // 5. Update Timeline Data Buffers
+      const nowLabel = new Date().toLocaleTimeString('ko-KR', { hour12: false, minute: '2-digit', second: '2-digit' });
+      state.timelineLabels.push(nowLabel);
+      state.timelineAx.push(calX);
+      state.timelineAy.push(calY);
+      state.timelineAz.push(calZ);
+      state.timelineAnet.push(state.currentAnet);
+
+      if (state.timelineLabels.length > state.maxTimelinePoints) {
+        state.timelineLabels.shift();
+        state.timelineAx.shift();
+        state.timelineAy.shift();
+        state.timelineAz.shift();
+        state.timelineAnet.shift();
+      }
+
+      // 6. Refresh UI and Alert Status
+      updateUI();
+    }
+
+    // Send LED command via Web Serial & update UI indicators
+    async function sendLedCommand(cmd) {
+      if (state.lastLedCommand === cmd) return;
+      state.lastLedCommand = cmd;
+
+      // Send to hardware over Web Serial if active
+      if (state.isConnected && state.port && state.port.writable) {
+        try {
+          const writer = state.port.writable.getWriter();
+          const encoder = new TextEncoder();
+          await writer.write(encoder.encode(cmd));
+          writer.releaseLock();
+        } catch (err) {
+          console.warn("시리얼 LED 명령 전송 실패:", err);
+        }
+      }
+
+      // Update UI Badges
+      if (cmd === 'R') {
+        // Red LED (D3) ON
+        ledRedIndicator.className = "px-2 py-0.5 rounded bg-rose-500/30 text-rose-300 border border-rose-500/60 font-bold animate-pulse";
+        ledGreenIndicator.className = "px-2 py-0.5 rounded bg-slate-800 text-slate-600 border border-slate-700 opacity-60";
+      } else if (cmd === 'G') {
+        // Green LED (D2) ON
+        ledGreenIndicator.className = "px-2 py-0.5 rounded bg-emerald-500/30 text-emerald-300 border border-emerald-500/60 font-bold animate-pulse";
+        ledRedIndicator.className = "px-2 py-0.5 rounded bg-slate-800 text-slate-600 border border-slate-700 opacity-60";
+      } else {
+        // All OFF
+        ledGreenIndicator.className = "px-2 py-0.5 rounded bg-slate-800 text-slate-500 border border-slate-700";
+        ledRedIndicator.className = "px-2 py-0.5 rounded bg-slate-800 text-slate-500 border border-slate-700";
+      }
+    }
+
+    // Voice Alert ("위험합니다")
+    function speakHazardAlert() {
+      const now = Date.now();
+      // Throttle speech to once every 3.5 seconds
+      if (now - state.lastSpeechTime < 3500) return;
+      state.lastSpeechTime = now;
+
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel(); // Cancel pending speech
+        const utterance = new SpeechSynthesisUtterance("위험합니다. 위험합니다.");
+        utterance.lang = 'ko-KR';
+        utterance.rate = 1.0;
+        utterance.pitch = 1.1;
+        window.speechSynthesis.speak(utterance);
+      }
+    }
+
+    function updateUI() {
+      // 1. Numerics
+      currentAccelVal.textContent = state.currentAnet.toFixed(2);
+      pgaVal.textContent = state.pga.toFixed(2);
+
+      // Bars
+      const currentPercent = Math.min(100, (state.currentAnet / 15) * 100);
+      currentAccelBar.style.width = `${currentPercent}%`;
+      const pgaPercent = Math.min(100, (state.pga / 15) * 100);
+      pgaBar.style.width = `${pgaPercent}%`;
+
+      // 2. Seismic Alarm Threshold State & LED / Voice Control
+      if (state.currentAnet < 0.5) {
+        // Safe / Normal State
+        statusCard.className = "bg-seismo-card border border-seismo-border rounded-2xl p-5 shadow-lg relative overflow-hidden";
+        statusCardIcon.className = "fa-solid fa-circle-check text-emerald-400 text-lg";
+        statusBadge.className = "px-3 py-1 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-base font-bold flex items-center gap-2";
+        statusStateText.textContent = "정상 (정지 상태)";
+        statusDescText.textContent = "책상에 진동이 감지되지 않는 미세 진동 수준입니다.";
+        
+        // Turn OFF both LEDs
+        sendLedCommand('0');
+
+      } else if (state.currentAnet >= 0.5 && state.currentAnet < 2.5) {
+        // Weak Warning / Motion Detected
+        statusCard.className = "bg-seismo-card border border-amber-500/40 rounded-2xl p-5 shadow-lg relative overflow-hidden bg-amber-500/5";
+        statusCardIcon.className = "fa-solid fa-triangle-exclamation text-amber-400 text-lg";
+        statusBadge.className = "px-3 py-1 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/30 text-base font-bold flex items-center gap-2";
+        statusStateText.textContent = "약한 진동 감지 (녹색 LED ON)";
+        statusDescText.textContent = "책상 주변에서 약한 진동이 전달 중입니다. D2 녹색 LED가 점등됩니다.";
+        
+        // Turn ON Green LED (D2)
+        sendLedCommand('G');
+
+      } else {
+        // Strong Warning / Heavy Earthquake
+        statusCard.className = "bg-seismo-card border border-rose-500/60 rounded-2xl p-5 shadow-lg relative overflow-hidden bg-rose-500/10 animate-pulse-ring";
+        statusCardIcon.className = "fa-solid fa-triangle-exclamation text-rose-500 text-lg animate-bounce";
+        statusBadge.className = "px-3 py-1 rounded-lg bg-rose-500/30 text-rose-300 border border-rose-500/50 text-base font-bold flex items-center gap-2";
+        statusStateText.textContent = "🚨 강한 지진 경보! (빨간 LED ON)";
+        statusDescText.textContent = "큰 진폭의 지진파 감지! D3 빨간 LED가 점등되고 경고 음성이 출력됩니다!";
+        
+        // Turn ON Red LED (D3)
+        sendLedCommand('R');
+        // Voice Alert "위험합니다"
+        speakHazardAlert();
+        // Sound Beep Tone
+        triggerBeep();
+      }
+
+      // 3. Render Realtime Graph
+      realtimeChart.data.labels = state.timelineLabels;
+      realtimeChart.data.datasets[0].data = state.timelineAx;
+      realtimeChart.data.datasets[1].data = state.timelineAy;
+      realtimeChart.data.datasets[2].data = state.timelineAz;
+      realtimeChart.data.datasets[3].data = state.timelineAnet;
+      realtimeChart.update('none');
+    }
+
+    function triggerBeep() {
+      try {
+        if (!state.audioCtx) {
+          state.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if (state.audioCtx.state === 'suspended') {
+          state.audioCtx.resume();
+        }
+        const osc = state.audioCtx.createOscillator();
+        const gain = state.audioCtx.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(440, state.audioCtx.currentTime); // A4
+        gain.gain.setValueAtTime(0.05, state.audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, state.audioCtx.currentTime + 0.2);
+        osc.connect(gain);
+        gain.connect(state.audioCtx.destination);
+        osc.start();
+        osc.stop(state.audioCtx.currentTime + 0.2);
+      } catch (e) {
+        // Audio policy ignore
+      }
+    }
+
+    async function connectSerial() {
+      if (!('serial' in navigator)) {
+        document.getElementById('browser-warning').classList.remove('hidden');
+        showToast('Web Serial API를 지원하지 않는 브라우저입니다.', 'error');
+        return;
+      }
+
+      try {
+        state.port = await navigator.serial.requestPort();
+        await state.port.open({ baudRate: 115200 });
+
+        state.isConnected = true;
+        updateConnectionUI(true, '오렌지보드 연결됨');
+        showToast('오렌지보드가 성공적으로 연결되었습니다!', 'success');
+
+        const textDecoder = new TextDecoderStream();
+        const readableStreamClosed = state.port.readable.pipeTo(textDecoder.writable);
+        const reader = textDecoder.readable.getReader();
+        state.reader = reader;
+
+        let buffer = '';
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) {
+            reader.releaseLock();
+            break;
+          }
+          if (value) {
+            buffer += value;
+            const lines = buffer.split('\n');
+            buffer = lines.pop(); // Keep incomplete line
+
+            for (const line of lines) {
+              parseSerialLine(line.trim());
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Serial Error:', err);
+        if (state.isConnected) {
+          disconnectSerial();
+        }
+      }
+    }
+
+    async function disconnectSerial() {
+      if (state.reader) {
+        try {
+          await state.reader.cancel();
+        } catch (e) {}
+      }
+      if (state.port) {
+        try {
+          await state.port.close();
+        } catch (e) {}
+      }
+      state.isConnected = false;
+      state.port = null;
+      state.reader = null;
+      updateConnectionUI(false, '연결 해제됨');
+      showToast('시리얼 포트 연결이 해제되었습니다.', 'info');
+    }
+
+    function parseSerialLine(line) {
+      if (!line) return;
+      // Expecting CSV format: "ax,ay,az"
+      const parts = line.split(',');
+      if (parts.length >= 3) {
+        const x = parseFloat(parts[0]);
+        const y = parseFloat(parts[1]);
+        const z = parseFloat(parts[2]);
+
+        if (!isNaN(x) && !isNaN(y) && !isNaN(z)) {
+          processSensorData(x, y, z);
+        }
+      }
+    }
+
+    function updateConnectionUI(connected, text) {
+      if (connected) {
+        statusDot.className = 'w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse';
+        statusText.textContent = text;
+        connectBtnText.textContent = '포트 해제';
+        connectBtn.className = 'px-4 py-2.5 rounded-xl bg-rose-500 hover:bg-rose-400 text-slate-950 font-bold text-sm shadow-lg shadow-rose-500/20 transition-all flex items-center gap-2';
+      } else {
+        statusDot.className = 'w-2.5 h-2.5 rounded-full bg-slate-500';
+        statusText.textContent = text;
+        connectBtnText.textContent = '포트 연결';
+        connectBtn.className = 'px-4 py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-sm shadow-lg shadow-cyan-500/20 transition-all flex items-center gap-2';
+      }
+    }
+
+    let simInterval = null;
+    function toggleSimulation(enable) {
+      state.isSimulating = enable;
+      if (enable) {
+        if (state.isConnected) {
+          disconnectSerial();
+        }
+        updateConnectionUI(true, '가상 시뮬레이터 동작 중');
+        showToast('지진 시뮬레이터가 시작되었습니다. (책상 충격 모사)', 'info');
+
+        let shockCooldown = 0;
+        let shockIntensity = 0;
+
+        simInterval = setInterval(() => {
+          // Base micro-noise
+          let rx = (Math.random() - 0.5) * 0.1;
+          let ry = (Math.random() - 0.5) * 0.1;
+          let rz = 9.81 + (Math.random() - 0.5) * 0.1;
+
+          // Random shock event simulator every ~4-7 seconds
+          if (shockCooldown <= 0 && Math.random() < 0.04) {
+            shockCooldown = 25; // 25 frames shock tail (~1.25 sec)
+            shockIntensity = 2.5 + Math.random() * 8.0; // Random amplitude
+          }
+
+          if (shockCooldown > 0) {
+            const decay = shockCooldown / 25;
+            rx += (Math.random() - 0.5) * shockIntensity * decay;
+            ry += (Math.random() - 0.5) * shockIntensity * decay;
+            rz += (Math.random() - 0.5) * shockIntensity * decay;
+            shockCooldown--;
+          }
+
+          processSensorData(rx, ry, rz);
+        }, 50); // 20Hz
+      } else {
+        clearInterval(simInterval);
+        simInterval = null;
+        updateConnectionUI(false, '연결 대기 중');
+        showToast('시뮬레이터가 정지되었습니다.', 'info');
+      }
+    }
+
+    // Record current PGA to distance dataset
+    function recordCurrentExperiment() {
+      const dist = state.selectedDistance;
+      const amp = state.pga > 0 ? state.pga : state.currentAnet;
+
+      if (amp <= 0.01) {
+        showToast('기록할 진폭이 0에 가깝습니다. 책상을 두드린 후 기록하세요!', 'warning');
+        return;
+      }
+
+      const newRecord = {
+        id: Date.now(),
+        timestamp: new Date().toLocaleTimeString('ko-KR'),
+        distance: dist,
+        peakAmp: amp,
+        status: amp > 2.5 ? '강한 지진' : (amp > 0.8 ? '보통' : '약함')
+      };
+
+      state.records.push(newRecord);
+      showToast(`${dist}cm 진원에서 진폭 ${amp.toFixed(2)} m/s² 기록 완료!`, 'success');
+
+      updateDataTable();
+      updateDistanceChart();
+    }
+
+    function updateDataTable() {
+      const tbody = document.getElementById('data-table-body');
+      tbody.innerHTML = '';
+
+      if (state.records.length === 0) {
+        tbody.innerHTML = `
+          <tr id="empty-row" class="text-center py-6 text-slate-500 font-sans">
+            <td colspan="6" class="py-8">
+              <i class="fa-solid fa-database text-2xl mb-2 text-slate-600 block"></i>
+              기록된 실험 데이터가 없습니다. 상단에서 거리를 선택하고 [현재 최대 진폭 기록하기]를 눌러보세요.
+            </td>
+          </tr>`;
+        return;
+      }
+
+      state.records.forEach((rec, idx) => {
+        const tr = document.createElement('tr');
+        tr.className = "hover:bg-slate-900/60 transition";
+        tr.innerHTML = `
+          <td class="py-3 px-4 font-bold text-slate-400">#${idx + 1}</td>
+          <td class="py-3 px-4 text-slate-300">${rec.timestamp}</td>
+          <td class="py-3 px-4 text-seismo-accent font-bold">${rec.distance} cm</td>
+          <td class="py-3 px-4 text-amber-300 font-bold">${rec.peakAmp.toFixed(2)} m/s²</td>
+          <td class="py-3 px-4">
+            <span class="px-2 py-0.5 rounded text-[10px] font-bold ${
+              rec.peakAmp > 2.5 ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+            }">${rec.status}</span>
+          </td>
+          <td class="py-3 px-4 text-center">
+            <button onclick="deleteRecord(${rec.id})" class="text-slate-500 hover:text-rose-400 p-1">
+              <i class="fa-solid fa-xmark"></i>
+            </button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function deleteRecord(id) {
+      state.records = state.records.filter(r => r.id !== id);
+      updateDataTable();
+      updateDistanceChart();
+    }
+
+    function updateDistanceChart() {
+      const scatterPoints = state.records.map(r => ({ x: r.distance, y: r.peakAmp }));
+      distanceChart.data.datasets[0].data = scatterPoints;
+
+      // Group by distance to create average attenuation trend line
+      const groups = {};
+      state.records.forEach(r => {
+        if (!groups[r.distance]) groups[r.distance] = [];
+        groups[r.distance].push(r.peakAmp);
+      });
+
+      const sortedDistances = Object.keys(groups).map(Number).sort((a, b) => a - b);
+      const trendPoints = sortedDistances.map(d => {
+        const avg = groups[d].reduce((a, b) => a + b, 0) / groups[d].length;
+        return { x: d, y: avg };
+      });
+
+      distanceChart.data.datasets[1].data = trendPoints;
+      distanceChart.update();
+    }
+
+    function calibrateZero() {
+      state.offsetX = state.ax + state.offsetX;
+      state.offsetY = state.ay + state.offsetY;
+      state.offsetZ = state.az + state.offsetZ;
+      state.pga = 0;
+      showToast('현재 상태로 영점이 조절되었습니다 (오프셋 0m/s²).', 'info');
+    }
+
+    function exportToCSV() {
+      if (state.records.length === 0) {
+        showToast('저장할 실험 데이터가 없습니다.', 'warning');
+        return;
+      }
+
+      let csvContent = "data:text/csv;charset=utf-8,";
+      csvContent += "Index,Timestamp,Distance_cm,Peak_Amplitude_ms2,Status\n";
+
+      state.records.forEach((r, idx) => {
+        csvContent += `${idx + 1},${r.timestamp},${r.distance},${r.peakAmp.toFixed(3)},${r.status}\n`;
+      });
+
+      const encodedUri = encodeURI(csvContent);
+      const link = document.createElement("a");
+      link.setAttribute("href", encodedUri);
+      link.setAttribute("download", `책상지진계_실험결과_${new Date().toISOString().slice(0, 10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      showToast('CSV 파일이 성공적으로 다운로드되었습니다!', 'success');
+    }
+
+    // Connect / Disconnect Serial Click
+    connectBtn.addEventListener('click', () => {
+      if (state.isSimulating) {
+        simToggle.checked = false;
+        toggleSimulation(false);
+      }
+
+      if (state.isConnected) {
+        disconnectSerial();
+      } else {
+        connectSerial();
+      }
+    });
+
+    // Zero Calibration Click
+    calibrateBtn.addEventListener('click', calibrateZero);
+
+    // Reset Data
+    resetBtn.addEventListener('click', () => {
+      state.pga = 0;
+      state.timelineLabels = [];
+      state.timelineAx = [];
+      state.timelineAy = [];
+      state.timelineAz = [];
+      state.timelineAnet = [];
+      showToast('실시간 파형 및 최대 진폭이 초기화되었습니다.', 'info');
+    });
+
+    // Reset PGA Button
+    resetPgaBtn.addEventListener('click', () => {
+      state.pga = 0;
+      pgaVal.textContent = "0.00";
+      pgaBar.style.width = "0%";
+      showToast('최대 진폭(PGA)이 초기화되었습니다.', 'info');
+    });
+
+    // Export CSV
+    exportCsvBtn.addEventListener('click', exportToCSV);
+
+    // Filter Toggle
+    filterToggle.addEventListener('change', (e) => {
+      state.useFilter = e.target.checked;
+      showToast(`이동평균 필터: ${state.useFilter ? 'ON' : 'OFF'}`, 'info');
+    });
+
+    // Simulation Toggle
+    simToggle.addEventListener('change', (e) => {
+      toggleSimulation(e.target.checked);
+    });
+
+    // Distance Buttons
+    document.querySelectorAll('.dist-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        document.querySelectorAll('.dist-btn').forEach(b => {
+          b.className = "dist-btn px-2 py-2 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 font-bold text-xs border border-slate-700 transition";
+        });
+        e.target.className = "dist-btn px-2 py-2 rounded-lg bg-cyan-500 text-slate-950 font-bold text-xs border border-cyan-400 transition";
+        state.selectedDistance = parseInt(e.target.dataset.dist);
+        document.getElementById('selected-dist-label').textContent = `${state.selectedDistance} cm`;
+      });
+    });
+
+    // Record Amplitude Click
+    document.getElementById('record-amplitude-btn').addEventListener('click', recordCurrentExperiment);
+
+    // Clear Table
+    document.getElementById('clear-table-btn').addEventListener('click', () => {
+      state.records = [];
+      updateDataTable();
+      updateDistanceChart();
+      showToast('측정 목록이 초기화되었습니다.', 'info');
+    });
+
+    // Channel visibility toggles
+    Object.keys(channelToggles).forEach((key, index) => {
+      channelToggles[key].addEventListener('click', () => {
+        const dataset = realtimeChart.data.datasets[index];
+        dataset.hidden = !dataset.hidden;
+        channelToggles[key].classList.toggle('opacity-40');
+        realtimeChart.update();
+      });
+    });
+
+    // Guide Modal Listeners
+    const guideModal = document.getElementById('guide-modal');
+    document.getElementById('guide-modal-btn').addEventListener('click', () => guideModal.classList.remove('hidden'));
+    document.getElementById('close-modal-btn').addEventListener('click', () => guideModal.classList.add('hidden'));
+    guideModal.addEventListener('click', (e) => {
+      if (e.target === guideModal) guideModal.classList.add('hidden');
+    });
+
+    // Arduino Code Copy
+    document.getElementById('copy-code-btn').addEventListener('click', () => {
+      const codeText = document.getElementById('arduino-code-block').innerText;
+      
+      // Clipboard fallback
+      const textArea = document.createElement("textarea");
+      textArea.value = codeText;
+      document.body.appendChild(textArea);
+      textArea.select();
+      try {
+        document.execCommand('copy');
+        showToast('아두이노 코드가 클립보드에 복사되었습니다!', 'success');
+      } catch (err) {
+        showToast('복사에 실패했습니다.', 'error');
+      }
+      document.body.removeChild(textArea);
+    });
+
+    // Toast Notification Helper
+    function showToast(message, type = 'info') {
+      const toastContainer = document.getElementById('toast-container');
+      const toast = document.createElement('div');
+      
+      let icon = 'fa-circle-info text-cyan-400';
+      let border = 'border-slate-700';
+
+      if (type === 'success') {
+        icon = 'fa-circle-check text-emerald-400';
+        border = 'border-emerald-500/40';
+      } else if (type === 'warning') {
+        icon = 'fa-triangle-exclamation text-amber-400';
+        border = 'border-amber-500/40';
+      } else if (type === 'error') {
+        icon = 'fa-circle-xmark text-rose-400';
+        border = 'border-rose-500/40';
+      }
+
+      toast.className = `pointer-events-auto flex items-center gap-2.5 px-4 py-3 rounded-xl bg-slate-900 text-slate-100 text-xs border ${border} shadow-2xl transition-all duration-300 transform translate-y-2 opacity-0`;
+      toast.innerHTML = `<i class="fa-solid ${icon} text-base"></i><span>${message}</span>`;
+
+      toastContainer.appendChild(toast);
+
+      setTimeout(() => {
+        toast.classList.remove('translate-y-2', 'opacity-0');
+      }, 10);
+
+      setTimeout(() => {
+        toast.classList.add('opacity-0', 'translate-y-2');
+        setTimeout(() => toast.remove(), 300);
+      }, 3000);
+    }
+
+    // Auto check Web Serial API support on startup
+    window.addEventListener('DOMContentLoaded', () => {
+      if (!('serial' in navigator)) {
+        document.getElementById('browser-warning').classList.remove('hidden');
+      }
+    });
+  </script>
+</body>
+</html>
